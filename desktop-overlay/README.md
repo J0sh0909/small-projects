@@ -106,6 +106,6 @@ Unregister-ScheduledTask -TaskName "DesktopStats Overlay" -Confirm:$false
 |---|---|---|
 | Overlay doesn't appear | Not running as admin | Ensure "Run with highest privileges" is set in the task |
 | Sensors show `—` | LibreHardwareMonitor needs admin | Same as above |
-| Overlay mispositioned after RDP resize | Fixed — handled via `DisplaySettingsChanged` event | Update to latest build |
+| Overlay mispositioned after RDP resize | Fixed: handled via `DisplaySettingsChanged` event | Update to latest build |
 | Overlay flickers or appears on top of windows | Z-order timer issue | Restart the task via Task Scheduler |
 | UAC prompt appears at logon | Task not configured for elevated logon | Verify "Run with highest privileges" and logon type is "Interactive" |
