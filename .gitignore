@@ -1,6 +1,0 @@
-build/
-dist/
-__pycache__/
-*.spec
-click_log.txt
-autoclicker.pid
