@@ -1,6 +1,6 @@
 # RNG
 
-A cryptographically secure random password generator written in Go. It uses Go's `crypto/rand` (not `math/rand`), so the output is suitable for real secrets — not just toy randomness.
+A cryptographically secure random password generator written in Go. It uses Go's `crypto/rand` (not `math/rand`), so the output is suitable for real secrets not just toy randomness.
 
 By default it prints a single 10-character password drawn from upper- and lower-case letters, digits, and a wide set of symbols:
 
