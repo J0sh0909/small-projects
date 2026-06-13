@@ -71,8 +71,8 @@ The resulting `rng.exe` has no dependencies and can be copied anywhere.
 
 The generator lives entirely in [rng.go](./rng.go):
 
-- **Password length** change the `rng(10)` call in `main()` to your desired length.
-- **Character set** edit the `charset` constant to add or remove allowed characters.
+- **Password length:** change the `rng(10)` call in `main()` to your desired length.
+- **Character set:** edit the `charset` constant to add or remove allowed characters.
 
 After editing, rebuild with `go build -o rng.exe rng.go` (or re-run `go run rng.go`).
 
