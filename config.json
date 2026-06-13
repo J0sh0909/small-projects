@@ -1,9 +1,0 @@
-{
-  "x": null,
-  "y": null,
-  "clicks_per_second": 10,
-  "clicks_per_minute": 0,
-  "clicks_per_hour": 0,
-  "button": "left",
-  "stop_key": "ctrl+shift+f9"
-}
