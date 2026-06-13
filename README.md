@@ -1,4 +1,4 @@
-**Projects**
+**PROJECTS**
 | Projet | Description | Type |
 |---|---|---|
 | autoclicker | an autoclicker that randomizes click intervals | Python/ahk
