@@ -21,7 +21,7 @@ func rng(length int) (string, error) {
 }
 
 func main() {
-	password, err := rng(10)
+	password, err := rng(15)
 	if err != nil {
 		fmt.Println("Error generating password:", err)
 		return
