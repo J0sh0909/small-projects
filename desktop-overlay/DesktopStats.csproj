@@ -8,6 +8,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- System.Management / System.IO.Ports / System.CodeDom ship translated
+         resource assemblies, which land as cs\ de\ es\ fr\ ... folders next to the
+         binaries. The overlay has no localised UI, so keep English only. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
   <ItemGroup>

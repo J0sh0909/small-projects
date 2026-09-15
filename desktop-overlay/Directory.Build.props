@@ -1,0 +1,16 @@
+<Project>
+
+  <!-- Collapse bin\ and obj\ into a single artifacts\ folder.
+
+       MSBuild reads BaseIntermediateOutputPath before the .csproj is evaluated, so
+       this cannot live in DesktopStats.csproj - it has to be a Directory.Build.props.
+       This also catches the design-time builds the C# editor extension runs for
+       IntelliSense, which is what otherwise recreates obj\Debug on every folder open.
+
+       Requires the .NET 8 SDK or newer. -->
+  <PropertyGroup>
+    <UseArtifactsOutput>true</UseArtifactsOutput>
+    <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
+  </PropertyGroup>
+
+</Project>

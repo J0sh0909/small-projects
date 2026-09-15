@@ -4,99 +4,116 @@ A lightweight Windows desktop overlay that displays real-time system stats (CPU,
 
 ## Requirements
 
-- Windows 10/11
-- [.NET 8.0 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) (Desktop Runtime)
-- Administrator privileges (required by LibreHardwareMonitor for hardware sensor access)
-
-## Build
-
-```powershell
-cd desktop-overlay
-dotnet publish -c Release -r win-x64 --self-contained false -o publish\
-```
-
-The output executable will be at `publish\DesktopStats.exe`.
+- Windows 10/11 (x64)
+- Administrator privileges — LibreHardwareMonitor loads a kernel driver to read hardware sensors
+- .NET 8 Desktop Runtime — **only** for the portable download; the standalone `.exe` bundles its own runtime
 
 ---
 
-## Autostart on Login (Task Scheduler)
+## Install
 
-The app requires administrator privileges, so the **Startup folder and registry Run key methods will not work** — Windows won't elevate them silently. Task Scheduler is the correct approach: it can run a task elevated at logon with no UAC prompt.
+Two ways to get it. Pick one.
 
-### Steps
+| | **Option A — Standalone exe** | **Option B — Portable binaries** |
+|---|---|---|
+| Download | `DesktopStats.exe` | `DesktopStats-portable.zip` |
+| Size | ~69 MB | ~1.3 MB zipped |
+| .NET 8 Runtime required | No — bundled | Yes |
+| Files on disk | One | A folder of DLLs |
 
-1. **Build the project** and note the full path to `DesktopStats.exe`
-   (e.g. `C:\Users\Joshua\Documents\Scripts\desktop-overlay\publish\DesktopStats.exe`)
+Both are attached to each `desktop-overlay-*` tag on the [Releases](https://github.com/J0sh0909/small-projects/releases) page.
 
-2. **Open Task Scheduler**
-   Press `Win + R`, type `taskschd.msc`, press Enter.
+### Option A — Standalone exe
 
-3. **Create a new task**
-   In the right panel click **"Create Task..."** (not "Create Basic Task").
+One self-contained file. Nothing else to install.
 
-4. **General tab**
-   - Name: `DesktopStats Overlay`
-   - Select **"Run only when user is logged on"**
-   - Check **"Run with highest privileges"**
-   - Configure for: `Windows 10` (or `Windows 11`)
+1. Download `DesktopStats.exe` from [Releases](https://github.com/J0sh0909/small-projects/releases).
+2. Double-click it and approve the UAC prompt. The overlay appears on your desktop.
 
-5. **Triggers tab**
-   - Click **New...**
-   - Begin the task: **"At log on"**
-   - Specific user: select your account
-   - (Optional) Add a delay of `10 seconds` to let the desktop fully load first
-   - Click OK
+> First launch takes a second or two longer than later ones — a single-file build unpacks itself to a temp folder on first run.
 
-6. **Actions tab**
-   - Click **New...**
-   - Action: **"Start a program"**
-   - Program/script: full path to `DesktopStats.exe`
-     e.g. `C:\Users\Joshua\Documents\Scripts\desktop-overlay\publish\DesktopStats.exe`
-   - Click OK
+### Option B — Portable binaries
 
-7. **Conditions tab**
-   - Uncheck **"Start the task only if the computer is on AC power"**
-     (if you use a laptop)
+Smaller download, but you need the runtime.
 
-8. **Settings tab**
-   - Check **"Allow task to be run on demand"**
-   - Uncheck **"Stop the task if it runs longer than..."**
-   - If the task is already running: select **"Do not start a new instance"**
+1. Install the [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) if you don't already have it.
+2. Download `DesktopStats-portable.zip` from [Releases](https://github.com/J0sh0909/small-projects/releases) and extract it anywhere.
+3. Right-click `DesktopStats.exe` → **Run as administrator**.
 
-9. Click **OK**. Windows may prompt for your password to confirm elevated scheduling.
+### Build from source
 
-### Test it
-
-Right-click the task in Task Scheduler and choose **"Run"** — the overlay should appear on your desktop immediately without a UAC prompt.
-
-### Alternative: PowerShell one-liner
-
-Run this in an elevated PowerShell to register the task automatically (adjust the exe path):
+Needs the [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) or newer.
 
 ```powershell
-$exe = "C:\Users\Joshua\Documents\Scripts\desktop-overlay\publish\DesktopStats.exe"
-
-$action  = New-ScheduledTaskAction -Execute $exe
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0
-$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -RunLevel Highest -LogonType Interactive
-
-Register-ScheduledTask -TaskName "DesktopStats Overlay" `
-    -Action $action -Trigger $trigger `
-    -Settings $settings -Principal $principal -Force
+git clone https://github.com/J0sh0909/small-projects.git
+cd small-projects\desktop-overlay
+.\build.ps1
 ```
+
+This produces both distributables in `artifacts\dist\`:
+
+```
+artifacts\dist\DesktopStats.exe             Option A — self-contained single file
+artifacts\dist\DesktopStats-portable\       Option B — framework-dependent binaries
+artifacts\dist\DesktopStats-portable.zip    Option B, zipped for a release upload
+```
+
+All build output — compiler intermediates included — is confined to `artifacts\`, which is
+gitignored. There is no `bin\` or `obj\` in the project folder.
+
+`build.ps1 -Runtime win-arm64` targets ARM devices. `-SkipZip` skips the archive.
 
 ---
 
-## Uninstall / Remove from Startup
+## Autostart on Login
 
-To stop it from running at startup, open Task Scheduler, find **DesktopStats Overlay**, right-click and choose **Delete**.
+The overlay requires administrator privileges, so the **Startup folder and registry Run key will not work** — Windows won't elevate either silently. A scheduled task will, and the exe registers one for you:
 
-Or via PowerShell:
-
-```powershell
-Unregister-ScheduledTask -TaskName "DesktopStats Overlay" -Confirm:$false
 ```
+DesktopStats.exe --install
+```
+
+That copies itself to `%LOCALAPPDATA%\DesktopStats` (so the task survives deleting your download), registers a logon task named **DesktopStats Overlay** running elevated as the current user, and starts the overlay. It elevates itself via UAC — no need for an admin terminal.
+
+To undo it:
+
+```
+DesktopStats.exe --uninstall
+```
+
+### All commands
+
+| Command | What it does |
+|---|---|
+| `DesktopStats.exe` | Run the overlay |
+| `DesktopStats.exe --install` | Install and start at every logon |
+| `DesktopStats.exe --uninstall` | Remove the logon task and installed files |
+| `DesktopStats.exe --status` | Show whether it's installed and running |
+| `DesktopStats.exe --dump-sensors` | Print every CPU sensor, for diagnostics |
+| `DesktopStats.exe --help` | Usage |
+
+`--install` options:
+
+| Option | Effect |
+|---|---|
+| `--delay <seconds>` | Wait this long after logon before starting. Default 10 |
+| `--no-copy` | Register the exe where it already is; don't copy it |
+| `--user <DOMAIN\name>` | Install for this account instead of the current one. Only needed if you elevated as a different user |
+
+`--uninstall` takes `--keep-files` to remove the task but leave the binaries.
+
+> Because the overlay is a GUI app, running it from a console pops a separate window for command output rather than printing inline. That window stays open until you press a key.
+
+### Manual alternative (Task Scheduler GUI)
+
+If you'd rather not let the exe register anything, `--install` is equivalent to:
+
+1. `Win + R` → `taskschd.msc` → **Create Task...** (not "Create Basic Task")
+2. **General**: name it `DesktopStats Overlay`, select **Run only when user is logged on**, check **Run with highest privileges**
+3. **Triggers** → **New...** → **At log on**, your account, delay `10 seconds`
+4. **Actions** → **New...** → **Start a program** → full path to `DesktopStats.exe`
+5. **Conditions**: uncheck **Start the task only if the computer is on AC power** (laptops)
+6. **Settings**: check **Allow task to be run on demand**, uncheck **Stop the task if it runs longer than...**, set **Do not start a new instance**
 
 ---
 
@@ -104,8 +121,29 @@ Unregister-ScheduledTask -TaskName "DesktopStats Overlay" -Confirm:$false
 
 | Problem | Cause | Fix |
 |---|---|---|
-| Overlay doesn't appear | Not running as admin | Ensure "Run with highest privileges" is set in the task |
+| Overlay doesn't appear | Not running as admin | Ensure "Run with highest privileges" is set on the task |
 | Sensors show `—` | LibreHardwareMonitor needs admin | Same as above |
-| Overlay mispositioned after RDP resize | Fixed: handled via `DisplaySettingsChanged` event | Update to latest build |
-| Overlay flickers or appears on top of windows | Z-order timer issue | Restart the task via Task Scheduler |
-| UAC prompt appears at logon | Task not configured for elevated logon | Verify "Run with highest privileges" and logon type is "Interactive" |
+| `You must install .NET Desktop Runtime` on launch | Portable build without the runtime | Install the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0), or use the standalone exe |
+| `--install` says access denied | UAC declined | Approve the prompt, or run it from an elevated terminal |
+| SmartScreen warns about the exe | Unsigned binary | **More info** → **Run anyway**, or build from source |
+| Overlay mispositioned after RDP resize | Fixed — handled via `DisplaySettingsChanged` | Update to the latest release |
+| Overlay flickers or appears on top of windows | Z-order timer issue | `DesktopStats.exe --uninstall` then `--install`, or restart the task |
+| UAC prompt appears at logon | Task not configured for elevated logon | Verify "Run with highest privileges" and logon type "Interactive" |
+
+---
+
+## Project layout
+
+| Path | What it is |
+|---|---|
+| `Program.cs` | Entry point and command-line dispatch |
+| `OverlayForm.cs` | The overlay window — rendering, wallpaper theming, z-order and resize handling |
+| `SensorReader.cs` | LibreHardwareMonitor + performance counter sensor sampling |
+| `Installer.cs` | `--install` / `--uninstall` / `--status`; registers the logon task via `schtasks` |
+| `app.manifest` | Requests administrator elevation |
+| `build.ps1` | Maintainer only — builds both release artifacts into `artifacts\dist\` |
+| `Directory.Build.props` | Redirects all build output into `artifacts\` instead of `bin\` + `obj\` |
+
+## License
+
+MIT — see [LICENSE](../LICENSE) at the repository root.
