@@ -3,7 +3,7 @@
     Builds the two distributable flavours of DesktopStats into .\dist.
 
 .DESCRIPTION
-    Maintainer script — end users never run this; they download a release asset and
+    Maintainer script: end users never run this; they download a release asset and
     run "DesktopStats.exe --install". Compiling needs the .NET SDK, which the exe
     itself obviously cannot do, so this is the one thing left in PowerShell.
 

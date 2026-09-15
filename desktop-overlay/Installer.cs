@@ -11,7 +11,7 @@ namespace DesktopStats;
 ///
 /// The overlay needs administrator rights (LibreHardwareMonitor loads a kernel
 /// driver to read sensors), which rules out the Startup folder and the registry
-/// Run key — Windows won't elevate either silently. A scheduled task with
+/// Run key: Windows won't elevate either silently. A scheduled task with
 /// RunLevel=HighestAvailable will, so that's what we register.
 ///
 /// Task Scheduler is driven through schtasks.exe with a task XML document rather
@@ -136,7 +136,7 @@ internal static class Installer
         string installDir = InstallDir;
         Console.WriteLine(Directory.Exists(installDir)
             ? $"\nInstall directory: {installDir}"
-            : $"\nInstall directory: {installDir} (missing — task may point elsewhere)");
+            : $"\nInstall directory: {installDir} (missing; task may point elsewhere)");
 
         var running = Process.GetProcessesByName("DesktopStats")
                              .Where(p => p.Id != Environment.ProcessId)

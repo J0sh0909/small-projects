@@ -21,7 +21,7 @@ static class Program
         }
 
         // This is a WinExe, so it has no console of its own. Borrow the caller's if
-        // we were launched from one; otherwise open our own — which is what happens
+        // we were launched from one; otherwise open our own, which is what happens
         // when the exe is double-clicked, or when UAC relaunches it detached.
         bool ownConsole = !AttachConsole(-1) && AllocConsole();
 
