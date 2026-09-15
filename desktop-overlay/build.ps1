@@ -26,7 +26,10 @@
 .EXAMPLE
     .\build.ps1 -Runtime win-arm64
 #>
-[CmdletBinding()]
+# PositionalBinding is off so a mistyped flag (--SkipZip instead of -SkipZip) reports
+# itself rather than being silently bound to -Runtime and failing with a ValidateSet
+# error about a parameter the caller never mentioned.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [ValidateSet('win-x64', 'win-arm64', 'win-x86')]
     [string]$Runtime = 'win-x64',

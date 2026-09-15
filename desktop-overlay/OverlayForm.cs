@@ -7,7 +7,8 @@ namespace DesktopStats;
 
 public class OverlayForm : Form
 {
-    private readonly SensorReader _sensors;
+    // Null while this session is disconnected. See OnSessionSwitch.
+    private SensorReader? _sensors;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly System.Windows.Forms.Timer _zTimer;
     private SystemSnapshot _snapshot = new();
@@ -60,13 +61,14 @@ public class OverlayForm : Form
         _sensors = new SensorReader();
 
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch += OnSessionSwitch;
 
         AnalyzeWallpaper();
 
         _timer = new System.Windows.Forms.Timer { Interval = _refreshMs };
         _timer.Tick += (_, _) =>
         {
-            try { _snapshot = _sensors.Read(); } catch { }
+            ReadSensors();
             RenderToBuffer();
             Invalidate();
         };
@@ -76,8 +78,14 @@ public class OverlayForm : Form
         _zTimer.Tick += (_, _) => SendToBottom();
         _zTimer.Start();
 
-        try { _snapshot = _sensors.Read(); } catch { }
+        ReadSensors();
         RenderToBuffer();
+    }
+
+    private void ReadSensors()
+    {
+        if (_sensors is null) return;
+        try { _snapshot = _sensors.Read(); } catch { }
     }
 
     protected override CreateParams CreateParams
@@ -120,6 +128,59 @@ public class OverlayForm : Form
         AnalyzeWallpaper();
         RenderToBuffer();
         Invalidate();
+    }
+
+    /// <summary>
+    /// Releases the hardware sensors while this session is disconnected, and picks them
+    /// back up when it returns.
+    ///
+    /// The logon task runs one overlay per session (MultipleInstancesPolicy=Parallel),
+    /// which is what lets an RDP user get an overlay of their own after taking over from
+    /// the console. The catch is that a disconnected session's process keeps running, so
+    /// two instances can end up holding LibreHardwareMonitor's shared kernel driver at
+    /// once - and whichever disposes first tears that driver down for the other, leaving
+    /// the person actually looking at the screen with dead sensors.
+    ///
+    /// Windows client only ever has one connected interactive session, so standing down
+    /// on disconnect means exactly one instance owns the driver at any moment. It also
+    /// stops us polling hardware and reshuffling z-order for a desktop nobody can see.
+    ///
+    /// Locking is deliberately not treated as a disconnect: the session is still current,
+    /// and the overlay sits behind every window anyway.
+    /// </summary>
+    private void OnSessionSwitch(object sender, Microsoft.Win32.SessionSwitchEventArgs e)
+    {
+        if (InvokeRequired)
+        {
+            Invoke(OnSessionSwitch, sender, e);
+            return;
+        }
+
+        switch (e.Reason)
+        {
+            case Microsoft.Win32.SessionSwitchReason.ConsoleDisconnect:
+            case Microsoft.Win32.SessionSwitchReason.RemoteDisconnect:
+                _timer.Stop();
+                _zTimer.Stop();
+                _sensors?.Dispose();
+                _sensors = null;
+                break;
+
+            case Microsoft.Win32.SessionSwitchReason.ConsoleConnect:
+            case Microsoft.Win32.SessionSwitchReason.RemoteConnect:
+                if (_sensors is null)
+                {
+                    try { _sensors = new SensorReader(); } catch { return; }
+                }
+
+                // The wallpaper may have changed while we were away, and a reconnect
+                // over RDP usually arrives at a different resolution.
+                OnDisplaySettingsChanged(this, EventArgs.Empty);
+
+                _timer.Start();
+                _zTimer.Start();
+                break;
+        }
     }
 
     // ── Wallpaper color extraction ──
@@ -567,9 +628,10 @@ public class OverlayForm : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        Microsoft.Win32.SystemEvents.SessionSwitch -= OnSessionSwitch;
         _timer.Stop();
         _zTimer.Stop();
-        _sensors.Dispose();
+        _sensors?.Dispose();
         _backBuffer.Dispose();
         base.OnFormClosed(e);
     }

@@ -71,18 +71,20 @@ static class Program
             DesktopStats - system stats on the desktop wallpaper layer.
 
               DesktopStats.exe                 Run the overlay.
-              DesktopStats.exe --install       Install and start at every logon.
+              DesktopStats.exe --install       Install machine-wide, start at logon.
               DesktopStats.exe --uninstall     Remove the logon task and installed files.
               DesktopStats.exe --status        Show whether it is installed and running.
               DesktopStats.exe --dump-sensors  Print every CPU sensor, for diagnostics.
               DesktopStats.exe --help          Show this message.
 
+            --install copies the exe to %ProgramFiles%\DesktopStats and registers a task
+            that starts it whenever any administrator logs on, elevated, in their own
+            session. Both --install and --uninstall affect every user on the machine.
+
             Options for --install:
               --delay <seconds>   Wait this long after logon before starting. Default 10.
               --no-copy           Register where the exe already is; don't copy it to
-                                  %LOCALAPPDATA%\DesktopStats.
-              --user <DOMAIN\name>  Install for this account instead of the current one.
-                                  Needed only if you elevated as a different user.
+                                  %ProgramFiles%\DesktopStats.
 
             Options for --uninstall:
               --keep-files        Remove the logon task but leave the binaries on disk.

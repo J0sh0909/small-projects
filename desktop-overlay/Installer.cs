@@ -1,6 +1,6 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Security;
-using System.Security.Principal;
 using System.Text;
 
 namespace DesktopStats;
@@ -14,6 +14,18 @@ namespace DesktopStats;
 /// Run key: Windows won't elevate either silently. A scheduled task with
 /// RunLevel=HighestAvailable will, so that's what we register.
 ///
+/// The install is machine-wide rather than per-user. The logon trigger carries no
+/// UserId, so it fires for whoever signs in, and the principal is the local
+/// Administrators group rather than one account, so the task runs as that person
+/// instead of as whoever happened to install it. Those two go together: an
+/// any-user trigger with a fixed user principal silently does nothing when that
+/// user isn't the one logging in, because it needs that account's own session.
+///
+/// Note there is no LogonType element on the principal: the task XML schema only
+/// permits it alongside UserId, and schtasks rejects the whole document with
+/// "unexpected node" if it appears next to a GroupId. A group principal runs in the
+/// triggering member's interactive session anyway.
+///
 /// Task Scheduler is driven through schtasks.exe with a task XML document rather
 /// than the COM API: it expresses every setting we need declaratively and needs
 /// no interop.
@@ -23,18 +35,53 @@ internal static class Installer
     private const string TaskName = "DesktopStats Overlay";
     private const string InstallDirName = "DesktopStats";
 
+    /// <summary>
+    /// Well-known SID of BUILTIN\Administrators, used in place of the name because
+    /// the group is localised on non-English installs of Windows.
+    ///
+    /// Administrators rather than Users deliberately: app.manifest demands
+    /// elevation, and HighestAvailable only raises a standard user to their own
+    /// highest level, which still can't load the sensor driver.
+    /// </summary>
+    private const string AdministratorsSid = "S-1-5-32-544";
+
+    /// <summary>
+    /// DACL for the task: full control for SYSTEM and Administrators, read-only for
+    /// authenticated users.
+    ///
+    /// Without this, a group-principal task inherits a default that only Administrators
+    /// can read, and "Administrators" means the *unfiltered* token. Anyone browsing
+    /// Task Scheduler normally, administrator or not, sees nothing at all and concludes
+    /// the task was never created. Read is granted, but not execute: a standard user
+    /// should be able to see the task without being able to trigger something that runs
+    /// elevated.
+    ///
+    /// This has to be applied through the Task Scheduler COM interface after creation:
+    /// schtasks /Create /XML stores the SecurityDescriptor element in the task document
+    /// but never applies it, so the restrictive default survives. See ApplyTaskSecurity.
+    /// </summary>
+    private const string TaskSecurityDescriptor = "D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;AU)";
+
     public static int Install(string[] args)
     {
         int delaySeconds = ArgValueInt(args, "--delay", 10);
         bool inPlace = args.Contains("--no-copy");
-        string account = ArgValue(args, "--user") ?? WindowsIdentity.GetCurrent().Name;
 
         string sourceExe = Environment.ProcessPath
             ?? throw new InvalidOperationException("Could not determine the running executable path.");
         string targetExe = inPlace ? sourceExe : CopyToInstallDir(sourceExe);
 
-        Console.WriteLine($"Registering logon task for {account}");
-        string xml = BuildTaskXml(targetExe, account, delaySeconds);
+        if (inPlace && targetExe.StartsWith(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine(
+                "Warning: --no-copy is registering an exe inside a user profile. Other\n" +
+                "         administrators may not be able to read it at logon.");
+        }
+
+        Console.WriteLine("Registering logon task for any administrator");
+        string xml = BuildTaskXml(targetExe, delaySeconds);
 
         // schtasks reads the definition from a file; UTF-16 is the encoding it
         // documents, and a BOM-less UTF-8 file is rejected on some builds.
@@ -56,8 +103,11 @@ internal static class Installer
             try { File.Delete(xmlPath); } catch { /* temp file; nothing to do */ }
         }
 
+        ApplyTaskSecurity();
+
         Console.WriteLine($"Installed: {targetExe}");
-        Console.WriteLine($"Task:      {TaskName}  (at logon, {delaySeconds}s delay, elevated)");
+        Console.WriteLine($"Task:      {TaskName}");
+        Console.WriteLine($"Runs:      at logon of any administrator, {delaySeconds}s delay, elevated");
 
         Console.WriteLine("\nStarting the overlay...");
         var (runCode, runOutput) = RunSchtasks($"/Run /TN \"{TaskName}\"");
@@ -68,11 +118,15 @@ internal static class Installer
             return 0;
         }
 
-        Console.WriteLine("Done. DesktopStats will start automatically at every logon.");
+        Console.WriteLine("Done. DesktopStats will start automatically when any administrator logs on.");
         Console.WriteLine("Remove it later with:  DesktopStats.exe --uninstall");
         return 0;
     }
 
+    /// <summary>
+    /// Removes the machine-wide install. This affects every user on the machine, not
+    /// just whoever runs it, because the task and the binaries are shared.
+    /// </summary>
     public static int Uninstall(string[] args)
     {
         bool keepFiles = args.Contains("--keep-files");
@@ -148,12 +202,18 @@ internal static class Installer
         return 0;
     }
 
+    /// <summary>
+    /// %ProgramFiles%\DesktopStats. Machine-wide on purpose: a per-user location like
+    /// %LOCALAPPDATA% lives inside one profile, which other administrators may not be
+    /// able to read, so the task would fail for everyone but the installer.
+    /// </summary>
     private static string InstallDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), InstallDirName);
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), InstallDirName);
 
     /// <summary>
-    /// Copies the binaries to %LOCALAPPDATA%\DesktopStats so the scheduled task keeps
-    /// working after the download folder is moved or deleted. Returns the new exe path.
+    /// Copies the binaries to %ProgramFiles%\DesktopStats so the scheduled task keeps
+    /// working after the download folder is moved or deleted, and so every administrator
+    /// can run it. Returns the new exe path.
     /// </summary>
     private static string CopyToInstallDir(string sourceExe)
     {
@@ -200,7 +260,10 @@ internal static class Installer
             CopyDirectory(dir, Path.Combine(destination, Path.GetFileName(dir)));
     }
 
-    /// <summary>Stops any other running overlay so its files aren't locked.</summary>
+    /// <summary>
+    /// Stops any other running overlay so its files aren't locked. There can be more
+    /// than one now that the task runs per session, so this sweeps them all.
+    /// </summary>
     private static void StopRunningOverlay()
     {
         foreach (var process in Process.GetProcessesByName("DesktopStats"))
@@ -237,6 +300,41 @@ internal static class Installer
         Process.Start(psi);
     }
 
+    /// <summary>
+    /// Relaxes the task's DACL so it is visible to a non-elevated user.
+    ///
+    /// Done through the Task Scheduler COM object because schtasks records the
+    /// SecurityDescriptor element without applying it. Late-bound via reflection so the
+    /// project needs no COM interop assembly and the single-file build stays portable.
+    ///
+    /// Failure here is not fatal: the task is already registered and working, it just
+    /// wouldn't show up outside an elevated Task Scheduler.
+    /// </summary>
+    private static void ApplyTaskSecurity()
+    {
+        try
+        {
+            Type? serviceType = Type.GetTypeFromProgID("Schedule.Service");
+            if (serviceType is null) return;
+
+            object? service = Activator.CreateInstance(serviceType);
+            if (service is null) return;
+
+            InvokeCom(service, "Connect");
+            object folder = InvokeCom(service, "GetFolder", "\\")!;
+            object task = InvokeCom(folder, "GetTask", TaskName)!;
+            InvokeCom(task, "SetSecurityDescriptor", TaskSecurityDescriptor, 0);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Note: could not relax the task's permissions ({ex.Message}).");
+            Console.WriteLine("      It works, but only appears in Task Scheduler when elevated.");
+        }
+    }
+
+    private static object? InvokeCom(object target, string method, params object?[] args) =>
+        target.GetType().InvokeMember(method, BindingFlags.InvokeMethod, null, target, args);
+
     private static (int ExitCode, string Output) RunSchtasks(string arguments)
     {
         var psi = new ProcessStartInfo
@@ -259,7 +357,7 @@ internal static class Installer
         return (process.ExitCode, stdout + stderr);
     }
 
-    private static string BuildTaskXml(string exePath, string account, int delaySeconds)
+    private static string BuildTaskXml(string exePath, int delaySeconds)
     {
         string workingDir = Path.GetDirectoryName(exePath)!;
         string delay = delaySeconds > 0
@@ -270,24 +368,23 @@ internal static class Installer
         <?xml version="1.0" encoding="UTF-16"?>
         <Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
           <RegistrationInfo>
-            <Description>Real-time system stats rendered on the desktop wallpaper layer.</Description>
             <URI>\{Esc(TaskName)}</URI>
+            <SecurityDescriptor>{TaskSecurityDescriptor}</SecurityDescriptor>
+            <Description>Real-time system stats rendered on the desktop wallpaper layer.</Description>
           </RegistrationInfo>
           <Triggers>
             <LogonTrigger>
-              <Enabled>true</Enabled>
-              <UserId>{Esc(account)}</UserId>{delay}
+              <Enabled>true</Enabled>{delay}
             </LogonTrigger>
           </Triggers>
           <Principals>
             <Principal id="Author">
-              <UserId>{Esc(account)}</UserId>
-              <LogonType>InteractiveToken</LogonType>
+              <GroupId>{AdministratorsSid}</GroupId>
               <RunLevel>HighestAvailable</RunLevel>
             </Principal>
           </Principals>
           <Settings>
-            <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+            <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
             <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
             <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
             <AllowHardTerminate>true</AllowHardTerminate>
