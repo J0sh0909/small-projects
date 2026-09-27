@@ -71,8 +71,15 @@ public sealed class SensorReader : IDisposable
     private static readonly string[] GpuLoadNames = { "GPU Core", "D3D 3D" };
 
     // Edge temperature. Hot Spot and Memory Junction run 10-20 °C hotter and are not what
-    // any vendor overlay shows as "GPU temperature".
+    // any vendor overlay shows as "GPU temperature". Some GPUs (AMD APUs, some older AMD
+    // cards) don't name their edge sensor "GPU Core"; ReadGpuTemp falls back to any
+    // temperature that isn't one of the hotter secondary sensors below.
     private static readonly string[] GpuTempNames = { "GPU Core" };
+
+    private static readonly string[] GpuSecondaryTempMarkers =
+    {
+        "Hot Spot", "Junction", "Memory", "VR ", "Liquid", "PLX", "Inlet", "Outlet", "Board",
+    };
 
     // NVIDIA: "GPU Package" (board power). AMD: "GPU Package", else PPT, else core.
     // Intel iGPU: "GPU Power".
@@ -91,10 +98,3 @@ public sealed class SensorReader : IDisposable
 
     [DllImport("kernel32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetPhysicallyInstalledSystemMemory(out long totalMemoryInKilobytes);
-
-    [DllImport("kernel32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetSystemTimes(out long idleTime, out long kernelTime, out long userTime);
-
-    [DllImport("kernel32.dll")]
