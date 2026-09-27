@@ -1,178 +1,100 @@
 # DesktopStats Overlay
 
-A lightweight Windows desktop overlay that displays real-time system stats (CPU, GPU, RAM, storage, network) rendered directly on the desktop wallpaper layer. Automatically adapts its color theme to your wallpaper and repositions itself when the screen is resized (including RDP sessions).
+A Windows overlay that draws live system stats on your desktop wallpaper, behind every window. It picks its colours from the wallpaper and repositions itself when the resolution changes, including over RDP.
 
-## Requirements
-
-- Windows 10/11 (x64)
-- Administrator privileges, because LibreHardwareMonitor loads a kernel driver to read hardware sensors
-- .NET 8 Desktop Runtime, **only** for the portable download; the standalone `.exe` bundles its own runtime
+**What it shows:** CPU and GPU load, temperature and power, VRAM, RAM, used space on each fixed drive, and network throughput.
 
 ---
 
-## Install
+## Quick start
 
-Two ways to get it. Pick one.
+1. Download **[`DesktopStats.exe`](https://github.com/J0sh0909/small-projects/raw/main/desktop-overlay/DesktopStats.exe)** from this folder. It's one self-contained file, about 64 MB, with no .NET install needed.
+2. Double-click it and approve the UAC prompt. The overlay appears on the right of your primary monitor.
+3. Optional: to start it automatically at logon, run this once from any terminal:
 
-| | **Option A: Standalone exe** | **Option B: Portable binaries** |
+   ```
+   DesktopStats.exe --install
+   ```
+
+To stop it, end `DesktopStats.exe` in Task Manager. To remove the autostart, run `DesktopStats.exe --uninstall`.
+
+**Requirements:** Windows 10 or 11 (x64) and an administrator account. It needs admin because LibreHardwareMonitor loads a kernel driver to read CPU temperature and power.
+
+> The exe is unsigned, so SmartScreen may warn on first run. Choose **More info**, then **Run anyway**, or build it yourself (see below).
+
+---
+
+## Where each number comes from
+
+Every metric is read from the most accurate source available for it, and sensors are matched by exact name. The overlay samples once a second.
+
+| Metric | Source | Notes |
 |---|---|---|
-| Download | `DesktopStats.exe` | `DesktopStats-portable.zip` |
-| Size | ~64 MB | ~1.3 MB zipped |
-| .NET 8 Runtime required | No, bundled | Yes |
-| Files on disk | One | A folder of DLLs |
+| CPU load | `GetSystemTimes` (Win32) | Based on scheduled idle time, the same basis as the `% Processor Time` counter. It stays accurate when the power plan pins *Maximum processor state* at 100%, a case where LibreHardwareMonitor's own load sensor reads ~100% at idle. |
+| CPU temp | LibreHardwareMonitor | Intel: `CPU Package`. AMD: `Core (Tdie)`, then `Core (Tctl/Tdie)`, with `Tctl` only as a last resort, since it carries a +10/20 °C offset on some Ryzen X chips. |
+| CPU power | LibreHardwareMonitor | `CPU Package` (Intel) or `Package` (AMD). Multi-socket systems show the sum. |
+| GPU load / temp / power | LibreHardwareMonitor | Only **one** GPU, the one with the most dedicated VRAM, so a discrete card wins over an iGPU. Temp is the core/edge sensor, not Hot Spot or Memory Junction. |
+| VRAM | LibreHardwareMonitor | Driver-reported dedicated memory. Shared system memory is not counted. |
+| RAM | `GlobalMemoryStatusEx` (Win32) | Physical RAM in use (total minus available), out of installed RAM. Page file and commit charge are excluded. |
+| Storage | `DriveInfo` | Every fixed drive, in GiB like Explorer. |
+| Network | Windows interface byte counters | Only adapters that carry a default route, so VPN tunnels (Tailscale, WireGuard) and Hyper-V/WSL virtual switches aren't counted twice. |
 
-Both are attached to each `desktop-overlay-*` tag on the [Releases](https://github.com/J0sh0909/small-projects/releases) page.
+A metric that can't be read is drawn as a dash (`—`), not a wrong number.
 
-### Option A: Standalone exe
+**Why the CPU % differs from Task Manager:** on Windows 10 1903+ and Windows 11, Task Manager shows *% Processor Utility*, which scales by clock speed relative to base clock. That makes it read higher under turbo and lower when cores are clocked down. The overlay shows time-based utilisation, which is what most monitoring tools report.
 
-One self-contained file. Nothing else to install.
-
-1. Download `DesktopStats.exe` from [Releases](https://github.com/J0sh0909/small-projects/releases).
-2. Double-click it and approve the UAC prompt. The overlay appears on your desktop.
-
-> First launch takes a second or two longer than later ones, because a single-file build unpacks itself to a temp folder on first run.
-
-### Option B: Portable binaries
-
-Smaller download, but you need the runtime.
-
-1. Install the [.NET 8 Desktop Runtime (x64)](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) if you don't already have it.
-2. Download `DesktopStats-portable.zip` from [Releases](https://github.com/J0sh0909/small-projects/releases) and extract it anywhere.
-3. Right-click `DesktopStats.exe` and choose **Run as administrator**.
-
-### Build from source
-
-Needs the [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) or newer.
-
-```powershell
-git clone https://github.com/J0sh0909/small-projects.git
-cd small-projects\desktop-overlay
-.\build.ps1
-```
-
-This produces both distributables in `artifacts\dist\`:
-
-```
-artifacts\dist\DesktopStats.exe             Option A, self-contained single file
-artifacts\dist\DesktopStats-portable\       Option B, framework-dependent binaries
-artifacts\dist\DesktopStats-portable.zip    Option B, zipped for a release upload
-```
-
-All build output, compiler intermediates included, is confined to `artifacts\`, which is
-gitignored. There is no `bin\` or `obj\` in the project folder.
-
-`build.ps1 -Runtime win-arm64` targets ARM devices. `-SkipZip` skips the archive.
+**To check what it's reading on your machine**, run `DesktopStats.exe --dump-sensors`. It lists every CPU, GPU and memory sensor, marks the GPU the overlay chose, and prints the exact values the overlay would draw.
 
 ---
 
-## Autostart on Login
-
-The overlay requires administrator privileges, so the **Startup folder and registry Run key will not work**: Windows won't elevate either silently. A scheduled task will, and the exe registers one for you:
-
-```
-DesktopStats.exe --install
-```
-
-That does three things:
-
-1. Copies itself to `%ProgramFiles%\DesktopStats`, so the task survives deleting your download and every administrator can reach it.
-2. Registers a logon task named **DesktopStats Overlay** whose principal is the local Administrators group, with a logon trigger carrying no user id.
-3. Starts the overlay.
-
-It elevates itself via UAC, so you don't need an admin terminal.
-
-**This is a machine-wide install.** The overlay starts for *any* administrator who signs in, running elevated in that person's own session, not as whoever installed it. Standard (non-administrator) users are not covered: `app.manifest` requires elevation, and a standard account has no elevation to give.
-
-### Multiple sessions and RDP
-
-The task is registered with `MultipleInstancesPolicy=Parallel`, so each session gets its own overlay. That matters when someone takes a machine over by RDP:
-
-- **Same account reconnecting** is a session reconnect, not a logon. No trigger fires, no second instance; the overlay you already had is still there.
-- **A different account connecting** starts a second session, so the logon trigger fires and that person gets their own overlay. The console session is disconnected but its process keeps running.
-
-For that second case the overlay releases its sensors on `ConsoleDisconnect` / `RemoteDisconnect` and reacquires them on reconnect. Without that, two instances would both hold LibreHardwareMonitor's shared kernel driver, and whichever exited first would tear it down for the other, leaving the person actually at the screen with dead sensors. Standing down also stops a disconnected session polling hardware and reshuffling z-order for a desktop nobody is looking at.
-
-Locking the workstation is *not* treated as a disconnect: the session is still current, and the overlay sits behind every window regardless.
-
-The other two policies are wrong here. `IgnoreNew` would leave an RDP user with no overlay at all, and `StopExisting` would kill the console instance and never bring it back, since reconnecting doesn't fire a logon trigger.
-
-To undo it, which likewise affects every user on the machine:
-
-```
-DesktopStats.exe --uninstall
-```
-
-### All commands
+## Commands
 
 | Command | What it does |
 |---|---|
 | `DesktopStats.exe` | Run the overlay |
-| `DesktopStats.exe --install` | Install machine-wide, start at any administrator's logon |
-| `DesktopStats.exe --uninstall` | Remove the logon task and installed files, for all users |
+| `DesktopStats.exe --install` | Install machine-wide and start at every administrator's logon |
+| `DesktopStats.exe --uninstall` | Remove the logon task and installed files |
 | `DesktopStats.exe --status` | Show whether it's installed and running |
-| `DesktopStats.exe --dump-sensors` | Print every CPU sensor, for diagnostics |
+| `DesktopStats.exe --dump-sensors` | Print all sensors plus the values the overlay would show |
 | `DesktopStats.exe --help` | Usage |
 
-`--install` options:
+| Option | Applies to | Effect |
+|---|---|---|
+| `--delay <seconds>` | `--install` | Wait this long after logon before starting. Default `10` |
+| `--no-copy` | `--install` | Register the exe where it is instead of copying it to Program Files |
+| `--keep-files` | `--uninstall` | Remove the task but leave the binaries |
 
-| Option | Effect |
-|---|---|
-| `--delay <seconds>` | Wait this long after logon before starting. Default 10 |
-| `--no-copy` | Register the exe where it already is; don't copy it to Program Files. Warns if the path is inside a user profile, since other administrators may not be able to read it |
+> The exe is a GUI app, so command output opens in its own console window, which stays open until you press a key.
 
-`--uninstall` takes `--keep-files` to remove the task but leave the binaries.
+---
 
-> Because the overlay is a GUI app, running it from a console pops a separate window for command output rather than printing inline. That window stays open until you press a key.
+## Autostart: how `--install` works
 
-### Manual alternative (Task Scheduler GUI)
+The Startup folder and the registry Run key can't silently elevate an app, so they don't work for something that needs admin. A scheduled task can. `--install` (which elevates itself through UAC):
 
-If you'd rather not let the exe register anything, `--install` is equivalent to:
+1. Copies the exe to `%ProgramFiles%\DesktopStats`, so the task keeps working after you delete the download.
+2. Registers a logon task, **DesktopStats Overlay**. Its principal is the local Administrators group and its trigger is "any user", so it runs elevated for **any administrator** who signs in, in that person's own session.
+3. Starts the overlay.
+
+Both `--install` and `--uninstall` affect every user on the machine. Standard (non-admin) accounts don't get the overlay, because they have no elevation to give.
+
+<details>
+<summary><b>RDP and multiple sessions</b></summary>
+
+The task runs one instance per session (`MultipleInstancesPolicy=Parallel`):
+
+- **The same account reconnecting** is a reconnect, not a logon. The existing overlay just carries on.
+- **A different account connecting** starts a new session, so that person gets their own overlay. The console session is disconnected, but its process keeps running.
+
+A disconnected overlay releases its sensors and stops polling, then picks them back up on reconnect. Without that, two instances would share LibreHardwareMonitor's kernel driver, and whichever exited first would unload it for the other. Locking the workstation doesn't count as a disconnect.
+
+</details>
+
+<details>
+<summary><b>Setting it up by hand in Task Scheduler instead</b></summary>
 
 1. `Win + R`, then `taskschd.msc`, then **Create Task...** (not "Create Basic Task")
-2. **General**: name it `DesktopStats Overlay`, **Change User or Group...** and enter `Administrators`, select **Run only when user is logged on**, check **Run with highest privileges**
-3. **Triggers**, **New...**, **At log on**, **Any user**, delay `10 seconds`
-4. **Actions**, **New...**, **Start a program**, full path to `DesktopStats.exe`
-5. **Conditions**: uncheck **Start the task only if the computer is on AC power** (laptops)
-6. **Settings**: check **Allow task to be run on demand**, uncheck **Stop the task if it runs longer than...**, set **Run a new instance in parallel**
-
-Step 2 is the part that makes it apply to everyone. Leaving the principal as a single account while setting the trigger to "Any user" produces a task that silently does nothing when anybody else signs in, because it still needs that one account's session.
-
-Two things `--install` handles that the GUI route does not:
-
-- A task built this way is readable only by the *unfiltered* Administrators token, so it vanishes from Task Scheduler whenever you open it without elevating, even as an administrator. `--install` grants authenticated users read access so it stays visible.
-- Set **Run a new instance in parallel** in step 6, or an RDP user taking over from the console gets no overlay.
-
----
-
-## Troubleshooting
-
-| Problem | Cause | Fix |
-|---|---|---|
-| Overlay doesn't appear | Not running as admin | Ensure "Run with highest privileges" is set on the task |
-| Sensor values render as a dash instead of a number | LibreHardwareMonitor needs admin | Same as above |
-| `You must install .NET Desktop Runtime` on launch | Portable build without the runtime | Install the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0), or use the standalone exe |
-| `--install` says access denied | UAC declined | Approve the prompt, or run it from an elevated terminal |
-| Overlay doesn't start for a particular account | That account isn't an administrator | Add it to the Administrators group; the app cannot read sensors without elevation |
-| Task is missing from Task Scheduler, but the overlay is running | A hand-made group-principal task is readable only by the *unfiltered* Administrators token, so it is invisible in an unelevated Task Scheduler even to an admin | Reopen Task Scheduler as administrator, or let `--install` create the task: it grants authenticated users read access so the task shows up normally |
-| SmartScreen warns about the exe | Unsigned binary | Choose **More info**, then **Run anyway**, or build from source |
-| Overlay mispositioned after RDP resize | Fixed, handled via `DisplaySettingsChanged` | Update to the latest release |
-| Overlay flickers or appears on top of windows | Z-order timer issue | `DesktopStats.exe --uninstall` then `--install`, or restart the task |
-| UAC prompt appears at logon | Task not configured for elevated logon | Verify "Run with highest privileges" and logon type "Interactive" |
-
----
-
-## Project layout
-
-| Path | What it is |
-|---|---|
-| `Program.cs` | Entry point and command-line dispatch |
-| `OverlayForm.cs` | The overlay window: rendering, wallpaper theming, z-order and resize handling |
-| `SensorReader.cs` | LibreHardwareMonitor and performance counter sensor sampling |
-| `Installer.cs` | `--install` / `--uninstall` / `--status`; registers the logon task via `schtasks` |
-| `app.manifest` | Requests administrator elevation |
-| `build.ps1` | Maintainer only, builds both release artifacts into `artifacts\dist\` |
-| `Directory.Build.props` | Redirects all build output into `artifacts\` instead of `bin\` and `obj\` |
-
-## License
-
-MIT, see [LICENSE](../LICENSE) at the repository root.
+2. **General**: name `DesktopStats Overlay`. Click **Change User or Group...** and enter `Administrators`. Select **Run only when user is logged on** and check **Run with highest privileges**.
+3. **Triggers**: **New...**, **At log on**, **Any user**, delay `10 seconds`
+4. **Actions**: **New...**, **Start a program**, full path to `DesktopStats.exe`
+5. **Conditions**: uncheck **Start the task only if the computer is on AC power**

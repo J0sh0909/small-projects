@@ -55,7 +55,7 @@ static class Program
     private static int DumpSensors()
     {
         using var reader = new SensorReader();
-        reader.DumpCpuSensors();
+        reader.DumpSensors();
         return 0;
     }
 
@@ -74,7 +74,7 @@ static class Program
               DesktopStats.exe --install       Install machine-wide, start at logon.
               DesktopStats.exe --uninstall     Remove the logon task and installed files.
               DesktopStats.exe --status        Show whether it is installed and running.
-              DesktopStats.exe --dump-sensors  Print every CPU sensor, for diagnostics.
+              DesktopStats.exe --dump-sensors  Print CPU/GPU/RAM sensors and the values shown.
               DesktopStats.exe --help          Show this message.
 
             --install copies the exe to %ProgramFiles%\DesktopStats and registers a task
