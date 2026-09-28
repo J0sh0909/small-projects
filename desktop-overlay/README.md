@@ -2,7 +2,7 @@
 
 A Windows overlay that draws live system stats on your desktop wallpaper, behind every window. It picks its colours from the wallpaper and repositions itself when the resolution changes, including over RDP.
 
-The panel is drawn with real per-pixel transparency, so text and gauges have clean edges on light and dark wallpapers alike. It scales with Windows display scaling (100%, 125%, 150% and so on), so it's the same physical size and equally sharp at 1080p, 1440p or 4K. It's click-through, so desktop icons underneath stay usable.
+The panel is drawn with real per-pixel transparency, so text and gauges have clean edges on light and dark wallpapers alike. It reads the part of the wallpaper actually behind it, then picks light or dark text and an accent colour. If that area is too mixed for either, as with a bright shape crossing a dark wallpaper, it adds a subtle translucent card behind itself. It re-themes as soon as you change wallpaper. It scales with Windows display scaling (100%, 125%, 150% and so on), so it's the same physical size and equally sharp at 1080p, 1440p or 4K. It's click-through, so desktop icons underneath stay usable.
 
 **What it shows:** CPU and GPU load, temperature and power, VRAM, RAM, used space on each fixed drive, and network throughput.
 
@@ -98,78 +98,3 @@ A disconnected overlay releases its sensors and stops polling, then picks them b
 1. `Win + R`, then `taskschd.msc`, then **Create Task...** (not "Create Basic Task")
 2. **General**: name `DesktopStats Overlay`. Click **Change User or Group...** and enter `Administrators`. Select **Run only when user is logged on** and check **Run with highest privileges**.
 3. **Triggers**: **New...**, **At log on**, **Any user**, delay `10 seconds`
-4. **Actions**: **New...**, **Start a program**, full path to `DesktopStats.exe`
-5. **Conditions**: uncheck **Start the task only if the computer is on AC power**
-6. **Settings**: check **Allow task to be run on demand**, uncheck **Stop the task if it runs longer than...**, choose **Run a new instance in parallel**
-
-Step 2 is what makes it work for everyone. A single-account principal with an "Any user" trigger does nothing when anybody else signs in.
-
-A task created this way is only visible in an *elevated* Task Scheduler. `--install` also grants read access to authenticated users so the task shows up normally.
-
-</details>
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| Overlay doesn't appear | It must run as admin. If using the task, check **Run with highest privileges** is set. |
-| CPU temp/power show `—` but GPU values work | The sensor driver was blocked. Microsoft Defender flags the WinRing0 driver used by LibreHardwareMonitor 0.9.4 as a vulnerable driver and can quarantine it. Check **Windows Security → Protection history** and allow it, or see *Known limitations*. |
-| Numbers look wrong for your hardware | Run `--dump-sensors` and compare its sensor list with the table above. It shows exactly which sensor each value came from. |
-| GPU temp shows `—` | That GPU exposes no usable temperature sensor. Intel integrated graphics never do. Run `--dump-sensors`: if the chosen GPU lists no `Temperature` line, there is nothing to read. |
-| GPU load shows 0% at the desktop | Normal. An idle desktop barely touches the GPU, and a game or video brings it up. |
-| GPU stats come from the wrong GPU | The GPU with the most VRAM is chosen. `--dump-sensors` shows which one was picked. |
-| Overlay doesn't start for one account | That account isn't an administrator. |
-| Task missing from Task Scheduler but overlay runs | Open Task Scheduler as administrator, or reinstall with `--install`. |
-| Overlay appears above windows or flickers | Run `--uninstall`, then `--install` again, or restart the task. |
-| UAC prompt at every logon | The task isn't set to **Run with highest privileges**. Reinstall with `--install`. |
-| `--install` says access denied | You declined UAC. Run it again and approve. |
-
-### Known limitations
-
-- **Sensor driver.** LibreHardwareMonitor 0.9.4 ships the old WinRing0 driver, which Defender may block (see above). Versions 0.9.5+ replaced it with [PawnIO](https://pawnio.eu/), but that driver has to be installed separately (`winget install namazso.PawnIO`), so the project stays on 0.9.4 for now to keep it a single exe.
-- **One monitor.** The overlay covers the primary monitor only.
-
----
-
-## Build from source
-
-Needs the [.NET 8 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) or newer.
-
-```powershell
-git clone https://github.com/J0sh0909/small-projects.git
-cd small-projects\desktop-overlay
-.\build.ps1
-```
-
-Output lands in `artifacts\dist\`, which is gitignored:
-
-| File | What it is |
-|---|---|
-| `DesktopStats.exe` | Self-contained single file. This is the one committed to this folder. |
-| `DesktopStats-portable\` | Framework-dependent build, ~1 MB, needs the [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0) |
-| `DesktopStats-portable.zip` | The above, zipped |
-
-Options: `-Runtime win-arm64` targets ARM devices, and `-SkipZip` skips the zip.
-
-To update the committed exe, copy `artifacts\dist\DesktopStats.exe` over `desktop-overlay\DesktopStats.exe`.
-
----
-
-## Project layout
-
-| Path | What it is |
-|---|---|
-| `DesktopStats.exe` | Prebuilt self-contained exe (win-x64) |
-| `Program.cs` | Entry point and command-line dispatch |
-| `OverlayForm.cs` | The overlay window: per-pixel-alpha layered rendering, DPI scaling, wallpaper theming, z-order and session handling |
-| `SensorReader.cs` | Metric sampling. The table above describes each source. |
-| `Installer.cs` | `--install` / `--uninstall` / `--status`, registering the logon task via `schtasks` |
-| `app.manifest` | Requests administrator elevation |
-| `build.ps1` | Builds the release exe and portable build into `artifacts\dist\` |
-| `Directory.Build.props` | Sends all build output to `artifacts\` instead of `bin\` and `obj\` |
-
-## License
-
-MIT, see [LICENSE](../LICENSE) at the repository root.
