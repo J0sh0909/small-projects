@@ -74,7 +74,7 @@ Les VLAN Wi-Fi ne sont transportés que vers les points d'accès : ils n'atteign
 ## Services
 
 - **DHCP :** 17 serveurs, un par VLAN de clients ou de VM, avec le routeur comme passerelle et DNS. Les VLAN d'infrastructure, la DMZ, la gestion et l'hyperviseur sont en adressage statique uniquement.
-- **DNS :** le routeur sert de résolveur avec cache (serveurs en amont Cloudflare et Google, en IPv4 et IPv6), accessible depuis les VLAN servis par DHCP (sauf le VLAN sandbox), ainsi que depuis la gestion et l'hyperviseur, qui ont un accès complet au routeur.
+- **DNS :** le routeur sert de serveur DNS avec cache et transfère les requêtes à Cloudflare et à Google (en IPv4 et IPv6). Il est accessible depuis les VLAN servis par DHCP (sauf le VLAN sandbox), ainsi que depuis la gestion et l'hyperviseur, qui ont un accès complet au routeur.
 - **IPv6 :** adresses ULA annoncées par SLAAC (paramètres par défaut de RouterOS). Le commutateur n'annonce rien.
 
 ---
