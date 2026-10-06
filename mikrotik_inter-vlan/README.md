@@ -41,7 +41,7 @@ graph TD
 
 ## Plan d'adressage
 
-Le troisième octet IPv4 et l'identifiant de sous-réseau IPv6 correspondent au numéro de VLAN. Chaque VLAN a sa passerelle (`.1` / `::1`) sur une interface VLAN du routeur. En IPv6, chaque VLAN reçoit un /64 tiré d'un préfixe ULA `fd5d:c575:3bea::/48`.
+Le troisième octet IPv4 et l'identifiant de sous-réseau IPv6 correspondent au numéro de VLAN, sauf pour le VLAN 1000 (hyperviseurs), qui utilise 192.168.0.0/24 et `fd5d:c575:3bea::/64` (identifiant de sous-réseau 0). Chaque VLAN a sa passerelle (`.1` / `::1`) sur une interface VLAN du routeur. En IPv6, chaque VLAN reçoit un /64 tiré d'un préfixe ULA `fd5d:c575:3bea::/48`.
 
 | VLAN | Nom | IPv4 | Adressage | Zone |
 |---|---|---|---|---|
@@ -61,7 +61,7 @@ Le troisième octet IPv4 et l'identifiant de sous-réseau IPv6 correspondent au 
 | 200 | IoT (Wi-Fi) | 192.168.200.0/24 | Statique .2-.49, DHCP .50-.254 (bail de 4 semaines et 2 jours) | untrusted |
 | 254 | Gestion | 192.168.254.0/28 | Statique | mgmt |
 
-Les VLAN Wi-Fi (10, 128, 129, 200) ont chacun leur propre SSID. Gestion : `.1` routeur, `.2` commutateur, `.3` contrôleur Omada, `.4` et `.5` points d'accès, avec des noms DNS statiques en `.mgmt`.
+Les VLAN Wi-Fi (10, 128, 129, 200) ont chacun leur propre SSID. Gestion : `.1` routeur, `.2` commutateur, `.3` contrôleur Omada, `.4` et `.5` points d'accès, `.10` ai, avec des noms DNS statiques en `.mgmt`.
 
 VLAN sans adresse :
 - **777** : VLAN natif des trunks, non routé, pour qu'aucune trame non étiquetée ne tombe dans un réseau utile.
@@ -74,7 +74,7 @@ Les VLAN Wi-Fi ne sont transportés que vers les points d'accès : ils n'atteign
 ## Services
 
 - **DHCP :** 17 serveurs, un par VLAN de clients ou de VM, avec le routeur comme passerelle et DNS. Les VLAN d'infrastructure, la DMZ, la gestion et l'hyperviseur sont en adressage statique uniquement.
-- **DNS :** le routeur sert de résolveur avec cache (amonts Cloudflare et Google, en IPv4 et IPv6), accessible seulement depuis les VLAN servis par DHCP, sauf le bac à sable.
+- **DNS :** le routeur sert de résolveur avec cache (amonts Cloudflare et Google, en IPv4 et IPv6), accessible depuis les VLAN servis par DHCP (sauf le bac à sable), ainsi que depuis la gestion et l'hyperviseur, qui ont un accès complet au routeur.
 - **IPv6 :** adresses ULA annoncées par SLAAC (paramètres par défaut de RouterOS). Le commutateur n'annonce rien.
 
 ---
@@ -98,7 +98,7 @@ La politique repose sur des listes d'adresses qui définissent des zones. Les m�
 | # | Source | Action |
 |---|---|---|
 | 1 | Toutes | Accepter les connexions établies et liées |
-| 2 | Toutes | Rejeter les paquets invalides |
+| 2 | Toutes | Abandonner (drop) les paquets invalides |
 | 3 | mgmt, hypervisor | Accepter (administration du routeur) |
 | 4 | trusted, hypervisor | Accepter ICMP |
 | 5 | VLAN servis par DHCP, sauf le bac à sable | Accepter DNS (UDP et TCP 53) |
@@ -109,7 +109,7 @@ La politique repose sur des listes d'adresses qui définissent des zones. Les m�
 | # | Source | Destination | Action |
 |---|---|---|---|
 | 1 | Toutes | Toutes | FastTrack et acceptation des connexions établies et liées |
-| 2 | Toutes | Toutes | Rejeter les paquets invalides |
+| 2 | Toutes | Toutes | Abandonner (drop) les paquets invalides |
 | 3 | trusted | trusted | Accepter |
 | 4 | hypervisor, mgmt | mgmt | Accepter |
 | 5 | trusted, hypervisor | dmz | Accepter |
@@ -119,18 +119,18 @@ La politique repose sur des listes d'adresses qui définissent des zones. Les m�
 | 9 | IoT (200) | Wi-Fi (128, 129) | Accepter |
 | 10 | sandbox | sandbox | Accepter |
 | 11 | trusted, hypervisor, untrusted, dmz | WAN | Accepter |
-| 12 | dmz | Toutes | Rejeter (la DMZ ne peut pas initier vers l'interne) |
-| 13 | sandbox | Toutes | Rejeter (aucune sortie) |
-| 14 | Toutes | sandbox | Rejeter |
-| 15 | untrusted | RFC 1918 | Rejeter |
-| 16 | Toutes | mgmt | Rejeter |
+| 12 | dmz | Toutes | Abandonner (la DMZ ne peut pas initier vers l'interne) |
+| 13 | sandbox | Toutes | Abandonner (aucune sortie) |
+| 14 | Toutes | sandbox | Abandonner |
+| 15 | untrusted | RFC 1918 | Abandonner |
+| 16 | Toutes | mgmt | Abandonner |
 | 17 | Toutes | Toutes | Refuser |
 
 ### IPv6
 
 La politique IPv6 reprend la même logique, avec trois différences :
 - ICMPv6 est toujours accepté, car la découverte des voisins et la découverte du MTU en dépendent.
-- Chaque règle d'accès à Internet est précédée d'un rejet vers `ula48`, pour qu'elle ne s'applique qu'au trafic qui quitte l'espace interne.
+- Chaque règle d'accès à Internet est précédée d'un abandon (drop) vers `ula48`, pour qu'elle ne s'applique qu'au trafic qui quitte l'espace interne.
 - Pas de FastTrack ni de NAT.
 
 ---
@@ -139,7 +139,7 @@ La politique IPv6 reprend la même logique, avec trois différences :
 
 Ces points sont visibles dans les exports et seraient corrigés lors d'une reconstruction :
 
-1. **ether1 est encore membre du pont.** Comme le port WAN est un port esclave du pont, RouterOS signale les règles NAT comme invalides et le client DHCP WAN comme inactif. Correction : retirer ether1 du pont et faire correspondre le NAT sur la liste d'interfaces `WAN`.
+1. **ether1 est encore membre du pont.** Comme le port WAN est un port esclave du pont, RouterOS signale les règles NAT comme invalides et le client DHCP WAN comme inactif. Les règles de transfert IPv4 vers le WAN utilisent la liste `WAN` (ether1 seulement) et ne peuvent donc pas correspondre non plus tant qu'ether1 est dans le pont. Correction : retirer ether1 du pont et faire correspondre le NAT sur la liste d'interfaces `WAN`.
 2. **Règle NAT en double.** La règle de masquage apparaît deux fois.
 3. **Client DHCP par défaut sur le pont.** Reste de la configuration d'origine, à supprimer une fois ether1 sorti du pont.
 4. **IPv6 interne seulement.** Le préfixe délégué par le fournisseur est demandé, mais il n'est attribué à aucun VLAN : seules les adresses ULA sont utilisées.
@@ -204,7 +204,7 @@ graph TD
 
 ## Addressing plan
 
-The third IPv4 octet and the IPv6 subnet ID match the VLAN number. Each VLAN has its gateway (`.1` / `::1`) on a VLAN interface of the router. For IPv6, each VLAN gets a /64 from the ULA prefix `fd5d:c575:3bea::/48`.
+The third IPv4 octet and the IPv6 subnet ID match the VLAN number, except for VLAN 1000 (hypervisors), which uses 192.168.0.0/24 and `fd5d:c575:3bea::/64` (subnet ID 0). Each VLAN has its gateway (`.1` / `::1`) on a VLAN interface of the router. For IPv6, each VLAN gets a /64 from the ULA prefix `fd5d:c575:3bea::/48`.
 
 | VLAN | Name | IPv4 | Addressing | Zone |
 |---|---|---|---|---|
@@ -224,7 +224,7 @@ The third IPv4 octet and the IPv6 subnet ID match the VLAN number. Each VLAN has
 | 200 | IoT (Wi-Fi) | 192.168.200.0/24 | Static .2-.49, DHCP .50-.254 (4-week, 2-day leases) | untrusted |
 | 254 | Management | 192.168.254.0/28 | Static | mgmt |
 
-The Wi-Fi VLANs (10, 128, 129, 200) each have their own SSID. Management: `.1` router, `.2` switch, `.3` Omada controller, `.4` and `.5` access points, with static `.mgmt` DNS names.
+The Wi-Fi VLANs (10, 128, 129, 200) each have their own SSID. Management: `.1` router, `.2` switch, `.3` Omada controller, `.4` and `.5` access points, `.10` ai, with static `.mgmt` DNS names.
 
 VLANs without an address:
 - **777**: native VLAN of the trunks, not routed, so untagged frames never land in a real network.
@@ -237,7 +237,7 @@ The Wi-Fi VLANs only go to the access points: they never reach the hypervisor sw
 ## Services
 
 - **DHCP:** 17 servers, one per client or VM VLAN, with the router as gateway and DNS. The infrastructure VLANs, the DMZ, management and the hypervisors are static only.
-- **DNS:** the router is a caching resolver (Cloudflare and Google upstreams over IPv4 and IPv6), reachable only from the VLANs served by DHCP, except the sandbox.
+- **DNS:** the router is a caching resolver (Cloudflare and Google upstreams over IPv4 and IPv6), reachable from the VLANs served by DHCP (except the sandbox), plus management and the hypervisors, which have full access to the router.
 - **IPv6:** ULA addresses advertised with SLAAC (RouterOS defaults). The switch advertises nothing.
 
 ---
@@ -302,7 +302,7 @@ The IPv6 policy follows the same logic, with three differences:
 
 These are visible in the exports and would be fixed in a rebuild:
 
-1. **ether1 is still a bridge member.** Because the WAN port is a bridge slave, RouterOS flags the NAT rules as invalid and the WAN DHCP client as inactive. Fix: remove ether1 from the bridge and match the NAT on the `WAN` interface list.
+1. **ether1 is still a bridge member.** Because the WAN port is a bridge slave, RouterOS flags the NAT rules as invalid and the WAN DHCP client as inactive. The IPv4 "to WAN" forward rules match the `WAN` list (ether1 only), so they cannot match either until ether1 leaves the bridge. Fix: remove ether1 from the bridge and match the NAT on the `WAN` interface list.
 2. **Duplicate NAT rule.** The masquerade rule appears twice.
 3. **Default DHCP client on the bridge.** Left over from the default configuration, to be removed once ether1 is out of the bridge.
 4. **IPv6 is internal only.** The ISP-delegated prefix is requested but not assigned to any VLAN, so only ULA addresses are used.
