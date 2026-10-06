@@ -2,11 +2,11 @@
 
 ## Français
 
-> **Projet personnel** (laboratoire maison)
+> **Projet personnel** (homelab)
 
 # Réseau domestique segmenté en VLAN (MikroTik, Omada)
 
-Réseau domestique segmenté en 24 VLAN, conçu pour remplacer un routeur grand public et isoler les réseaux destinés à un hyperviseur, le tout derrière un seul pare-feu. Un routeur MikroTik RB750Gr3 sert de cœur L3 et de pare-feu, un commutateur MikroTik CRS305 forme une couche L2 pure, et deux points d'accès TP-Link Omada transportent les VLAN étiquetés par un lien de raccordement sans fil maillé jusqu'au commutateur et à l'hyperviseur. Chaque VLAN est en double pile IPv4/IPv6 et la politique de sécurité repose sur des zones avec refus par défaut.
+Réseau domestique segmenté en 24 VLAN, conçu pour remplacer un routeur résidentiel et isoler les réseaux destinés à un hyperviseur, le tout derrière un seul pare-feu. Un routeur MikroTik RB750Gr3 sert de cœur L3 et de pare-feu, un commutateur MikroTik CRS305 forme une couche L2 pure, et deux points d'accès TP-Link Omada transportent les VLAN étiquetés par un réseau sans fil maillé jusqu'au commutateur et à l'hyperviseur. Chaque VLAN est en double pile IPv4/IPv6 et la politique de sécurité repose sur des zones avec refus par défaut.
 
 > **État :** réseau démantelé depuis (le commutateur sert maintenant de commutateur L2 sur un autre site et le routeur est inutilisé). Les fichiers de ce dossier sont les exports finaux des deux appareils MikroTik, ce qui permet de reconstruire le réseau.
 
@@ -19,7 +19,7 @@ graph TD
     ONT["ONT (fournisseur)"] <--> ROUTER["Routeur RB750Gr3<br/>cœur L3, pare-feu, DHCP, DNS"]
     ROUTER <--> CTRL["Contrôleur Omada OC220"]
     ROUTER <--> AP1["Point d'accès EAP 1"]
-    AP1 <-. lien de raccordement sans fil .-> AP2["Point d'accès EAP 2"]
+    AP1 <-. réseau sans fil .-> AP2["Point d'accès EAP 2"]
     AP2 <--> SWITCH["Commutateur CRS305<br/>L2 pur"]
     SWITCH <-- 10G --> HV["Hyperviseur<br/>Intel X550-T"]
 ```
@@ -35,7 +35,7 @@ graph TD
 | RB750Gr3 | ether5 | Trunk de points d'accès : VLAN Wi-Fi étiquetés, gestion non étiquetée (adoption des points d'accès) |
 | CRS305 | ether1 | Trunk vers l'EAP 2 (1G) |
 | CRS305 | sfp-sfpplus1 | Trunk vers la carte réseau 10G de l'hyperviseur |
-| CRS305 | sfp-sfpplus2 à 4 | Désactivés, placés dans le VLAN mort 666 |
+| CRS305 | sfp-sfpplus2 à 4 | Désactivés, placés dans le VLAN trou-noir 666 |
 
 ---
 
@@ -54,7 +54,7 @@ Le troisième octet IPv4 et l'identifiant de sous-réseau IPv6 correspondent au 
 | 60 | Conteneurs | 192.168.60.0/24 | Statique | infra |
 | 70 | Applications (production) | 192.168.70.0/24 | Statique .2-.49, DHCP .50-.254 | trusted |
 | 80 | Développement (préproduction) | 192.168.80.0/24 | Statique .2-.49, DHCP .50-.254 | trusted |
-| 90 | Bac à sable | 192.168.90.0/24 | Statique .2-.49, DHCP .50-.254 | sandbox |
+| 90 | Sandbox | 192.168.90.0/24 | Statique .2-.49, DHCP .50-.254 | sandbox |
 | 100 | DMZ | 192.168.100.0/24 | Statique | dmz |
 | 128 | Étage (Wi-Fi) | 192.168.128.0/24 | DHCP .2-.254 | untrusted |
 | 129 | Sous-sol (Wi-Fi) | 192.168.129.0/24 | DHCP .2-.254 | untrusted |
@@ -65,7 +65,7 @@ Les VLAN Wi-Fi (10, 128, 129, 200) ont chacun leur propre SSID. Gestion : `.1` r
 
 VLAN sans adresse :
 - **777** : VLAN natif des trunks, non routé, pour qu'aucune trame non étiquetée ne tombe dans un réseau utile.
-- **666** : VLAN mort des ports inutilisés du commutateur (désactivés et limités aux trames non étiquetées).
+- **666** : VLAN trou-noir des ports inutilisés du commutateur (désactivés et limités aux trames non étiquetées).
 
 Les VLAN Wi-Fi ne sont transportés que vers les points d'accès : ils n'atteignent jamais le commutateur de l'hyperviseur, qui ne reçoit que les VLAN serveurs (20 à 100), l'hyperviseur (1000) et la gestion (254).
 
@@ -74,7 +74,7 @@ Les VLAN Wi-Fi ne sont transportés que vers les points d'accès : ils n'atteign
 ## Services
 
 - **DHCP :** 17 serveurs, un par VLAN de clients ou de VM, avec le routeur comme passerelle et DNS. Les VLAN d'infrastructure, la DMZ, la gestion et l'hyperviseur sont en adressage statique uniquement.
-- **DNS :** le routeur sert de résolveur avec cache (amonts Cloudflare et Google, en IPv4 et IPv6), accessible depuis les VLAN servis par DHCP (sauf le bac à sable), ainsi que depuis la gestion et l'hyperviseur, qui ont un accès complet au routeur.
+- **DNS :** le routeur sert de résolveur avec cache (serveurs en amont Cloudflare et Google, en IPv4 et IPv6), accessible depuis les VLAN servis par DHCP (sauf le VLAN sandbox), ainsi que depuis la gestion et l'hyperviseur, qui ont un accès complet au routeur.
 - **IPv6 :** adresses ULA annoncées par SLAAC (paramètres par défaut de RouterOS). Le commutateur n'annonce rien.
 
 ---
@@ -93,23 +93,23 @@ La politique repose sur des listes d'adresses qui définissent des zones. Les m�
 | untrusted | 128, 129, 200 |
 | mgmt | 254 |
 
-### Entrée (trafic vers le routeur)
+### Input (trafic vers le routeur)
 
 | # | Source | Action |
 |---|---|---|
-| 1 | Toutes | Accepter les connexions établies et liées |
-| 2 | Toutes | Abandonner (drop) les paquets invalides |
+| 1 | Toutes | Accepter les connexions established/related |
+| 2 | Toutes | Drop des paquets invalides |
 | 3 | mgmt, hypervisor | Accepter (administration du routeur) |
 | 4 | trusted, hypervisor | Accepter ICMP |
-| 5 | VLAN servis par DHCP, sauf le bac à sable | Accepter DNS (UDP et TCP 53) |
+| 5 | VLAN servis par DHCP, sauf le VLAN sandbox | Accepter DNS (UDP et TCP 53) |
 | 6 | Toutes | Refuser |
 
-### Transfert IPv4 (entre VLAN et vers Internet)
+### Forward IPv4 (entre VLAN et vers Internet)
 
 | # | Source | Destination | Action |
 |---|---|---|---|
-| 1 | Toutes | Toutes | FastTrack et acceptation des connexions établies et liées |
-| 2 | Toutes | Toutes | Abandonner (drop) les paquets invalides |
+| 1 | Toutes | Toutes | FastTrack et acceptation des connexions established/related |
+| 2 | Toutes | Toutes | Drop des paquets invalides |
 | 3 | trusted | trusted | Accepter |
 | 4 | hypervisor, mgmt | mgmt | Accepter |
 | 5 | trusted, hypervisor | dmz | Accepter |
@@ -119,18 +119,18 @@ La politique repose sur des listes d'adresses qui définissent des zones. Les m�
 | 9 | IoT (200) | Wi-Fi (128, 129) | Accepter |
 | 10 | sandbox | sandbox | Accepter |
 | 11 | trusted, hypervisor, untrusted, dmz | WAN | Accepter |
-| 12 | dmz | Toutes | Abandonner (la DMZ ne peut pas initier vers l'interne) |
-| 13 | sandbox | Toutes | Abandonner (aucune sortie) |
-| 14 | Toutes | sandbox | Abandonner |
-| 15 | untrusted | RFC 1918 | Abandonner |
-| 16 | Toutes | mgmt | Abandonner |
+| 12 | dmz | Toutes | Drop (la DMZ ne peut pas initier vers l'interne) |
+| 13 | sandbox | Toutes | Drop (aucune sortie) |
+| 14 | Toutes | sandbox | Drop |
+| 15 | untrusted | RFC 1918 | Drop |
+| 16 | Toutes | mgmt | Drop |
 | 17 | Toutes | Toutes | Refuser |
 
 ### IPv6
 
 La politique IPv6 reprend la même logique, avec trois différences :
 - ICMPv6 est toujours accepté, car la découverte des voisins et la découverte du MTU en dépendent.
-- Chaque règle d'accès à Internet est précédée d'un abandon (drop) vers `ula48`, pour qu'elle ne s'applique qu'au trafic qui quitte l'espace interne.
+- Chaque règle d'accès à Internet est précédée d'un drop vers `ula48`, pour qu'elle ne s'applique qu'au trafic qui quitte l'espace interne.
 - Pas de FastTrack ni de NAT.
 
 ---
@@ -139,9 +139,9 @@ La politique IPv6 reprend la même logique, avec trois différences :
 
 Ces points sont visibles dans les exports et seraient corrigés lors d'une reconstruction :
 
-1. **ether1 est encore membre du pont.** Comme le port WAN est un port esclave du pont, RouterOS signale les règles NAT comme invalides et le client DHCP WAN comme inactif. Les règles de transfert IPv4 vers le WAN utilisent la liste `WAN` (ether1 seulement) et ne peuvent donc pas correspondre non plus tant qu'ether1 est dans le pont. Correction : retirer ether1 du pont et faire correspondre le NAT sur la liste d'interfaces `WAN`.
-2. **Règle NAT en double.** La règle de masquage apparaît deux fois.
-3. **Client DHCP par défaut sur le pont.** Reste de la configuration d'origine, à supprimer une fois ether1 sorti du pont.
+1. **ether1 est encore membre du bridge.** Comme le port WAN est un port slave du bridge, RouterOS signale les règles NAT comme invalides et le client DHCP WAN comme inactif. Les règles forward IPv4 vers le WAN utilisent la liste `WAN` (ether1 seulement) et ne peuvent donc pas correspondre non plus tant qu'ether1 est dans le bridge. Correction : retirer ether1 du bridge et appliquer le NAT à la liste d'interfaces `WAN`.
+2. **Règle NAT en double.** La règle masquerade apparaît deux fois.
+3. **Client DHCP par défaut sur le bridge.** Reste de la configuration d'origine, à supprimer une fois ether1 sorti du bridge.
 4. **IPv6 interne seulement.** Le préfixe délégué par le fournisseur est demandé, mais il n'est attribué à aucun VLAN : seules les adresses ULA sont utilisées.
 5. **Liste d'adresses `mgmt` en /24** alors que le sous-réseau de gestion est un /28 (sans conséquence, mais à aligner).
 6. **Pas de route par défaut sur le commutateur.** Son adresse de gestion ne répond qu'à l'intérieur du /28 de gestion, même si le pare-feu autorise l'hyperviseur à joindre la gestion. Correction : ajouter une route par défaut vers 192.168.254.1.
@@ -153,7 +153,7 @@ Ces points sont visibles dans les exports et seraient corrigés lors d'une recon
 | Fichier | Contenu |
 |---|---|
 | `RB750Gr3-backhaul.rsc` | Export RouterOS 7 du routeur (VLAN, DHCP, DNS, pare-feu IPv4 et IPv6, NAT) |
-| `CRS305-backhaul.rsc` | Export RouterOS 7 du commutateur (pont VLAN, trunks, gestion) |
+| `CRS305-backhaul.rsc` | Export RouterOS 7 du commutateur (bridge VLAN, trunks, gestion) |
 
 ---
 
